@@ -1,0 +1,5 @@
+pluginsManager:
+  enabled: true
+
+config:
+  watchPlugins: true
