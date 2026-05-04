@@ -117,3 +117,55 @@ Output (YAML dict, intended for use with fromYaml):
 addMount: {{ and .readOnly (not $hasTmpMount) }}
 addVolume: {{ and .readOnly (not $hasTmpMount) (not $hasTmpVolume) }}
 {{- end }}
+
+{{/*
+Generate plugin manager container spec.
+
+Input (dict):
+  Values - the root .Values context
+  withWatch - boolean: whether to include --watch flag
+  pluginsTmpCtx - tmpVolumeContext output for the plugin manager container
+*/}}
+{{- define "headlamp.pluginManagerContainer" -}}
+- name: headlamp-plugin
+  image: {{ .Values.pluginsManager.baseImage }}
+  command: ["/bin/sh", "-c"]
+  env:
+    {{- with .Values.pluginsManager.env }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+    - name: NPM_CONFIG_CACHE
+      value: /tmp/npm-cache
+    - name: NPM_CONFIG_USERCONFIG
+      value: /tmp/npm-userconfig
+  args:
+    - |
+      echo "Installing plugins from config..."
+      cat /config/plugin.yml
+      mkdir -p /tmp/npm-cache /tmp/npm-userconfig
+      npx --yes @headlamp-k8s/pluginctl@{{ .Values.pluginsManager.version }} install --config /config/plugin.yml --folderName {{ .Values.config.pluginsDir }}
+      {{- if .withWatch }} --watch{{- end }}
+  volumeMounts:
+    - name: plugins-dir
+      mountPath: {{ .Values.config.pluginsDir }}
+    - name: plugin-config
+      mountPath: /config
+    {{- if .pluginsTmpCtx.addMount }}
+    - name: headlamp-plugins-tmp
+      mountPath: /tmp
+    {{- end }}
+    {{- with .Values.pluginsManager.volumeMounts }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  resources:
+    {{- toYaml .Values.pluginsManager.resources | nindent 4 }}
+  securityContext:
+    {{- if .Values.pluginsManager.securityContext }}
+    {{- toYaml .Values.pluginsManager.securityContext | nindent 4 }}
+    {{- else if .Values.securityContext }}
+    {{- toYaml .Values.securityContext | nindent 4 }}
+    {{- else }}
+    {{- $defaultSC := dict "allowPrivilegeEscalation" false "runAsNonRoot" true "seccompProfile" (dict "type" "RuntimeDefault") "capabilities" (dict "drop" (list "ALL")) }}
+    {{- toYaml $defaultSC | nindent 4 }}
+    {{- end }}
+{{- end }}
